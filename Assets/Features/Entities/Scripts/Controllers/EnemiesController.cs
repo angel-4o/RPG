@@ -87,7 +87,7 @@ namespace Game.GamePlay.Enemies
 		private async UniTaskVoid SpawnLoop(CancellationToken cancellationToken)
 		{
 			await UniTask.Delay(TimeSpan.FromSeconds(3), cancellationToken: cancellationToken);
-			
+			// return;
 			while (!cancellationToken.IsCancellationRequested)
 			{
 				if (!_heroController.CurrentState.IsDead && _enemies.Count < EnemiesConfig.Instance.MaxEnemies)

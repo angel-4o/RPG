@@ -20,9 +20,27 @@ namespace Game.GamePlay.Heroes
 		private CancellationTokenSource _cancellationTokenSource;
 		private HeroState _currentState;
 		private List<EnemyState> _pendingAttackTargets;
+		private int _pendingAttackDamage;
+		private bool _wasJoystickActive;
+		private float _chargeStartTime;
+		private float _attackChargeRatio;
 
 		// Public State
 		public HeroState CurrentState => _currentState;
+		public float CurrentChargeRatio
+		{
+			get
+			{
+				if (_pendingAttackTargets != null)
+					return _attackChargeRatio;
+				return _wasJoystickActive
+					? Mathf.Clamp01(Mathf.InverseLerp(
+						HeroConfig.Instance.MinChargeDuration,
+						HeroConfig.Instance.MaxChargeDuration,
+						Time.time - _chargeStartTime))
+					: 0f;
+			}
+		}
 
 		// Events
 		public event Action<HeroState> OnStateChanged;
@@ -61,6 +79,10 @@ namespace Game.GamePlay.Heroes
 
 		public void Restart()
 		{
+			_wasJoystickActive = false;
+			_chargeStartTime = 0f;
+			_attackChargeRatio = 0f;
+			_pendingAttackTargets = null;
 			_currentState = new HeroState(Vector3.zero, HeroConfig.Instance.InitialHealth, 0f, Vector3.forward);
 			OnStateChanged?.Invoke(_currentState);
 		}
@@ -79,8 +101,21 @@ namespace Game.GamePlay.Heroes
 			{
 				if (!_currentState.IsDead)
 				{
-					if (_joystickInputService.CurrentState.IsActive) UpdatePosition();
-					else AttackClosestEnemy();
+					bool isJoystickActive = _joystickInputService.CurrentState.IsActive;
+
+					if (isJoystickActive)
+					{
+						if (!_wasJoystickActive)
+							_chargeStartTime = Time.time;
+
+						UpdatePosition();
+					}
+					else if (_wasJoystickActive)
+					{
+						TryChargedAttack();
+					}
+
+					_wasJoystickActive = isJoystickActive;
 				}
 				await UniTask.Yield(PlayerLoopTiming.Update, cancellationToken);
 			}
@@ -98,17 +133,34 @@ namespace Game.GamePlay.Heroes
 			OnStateChanged?.Invoke(_currentState);
 		}
 
-		private void AttackClosestEnemy()
+		private void TryChargedAttack()
 		{
 			if (_weaponsService.CurrentWeapon == null) return;
-			if (Time.time - _currentState.LastAttackTime < _weaponsService.CurrentWeapon.Cooldown) return;
-			if (!TryFindClosestEnemy(out EnemyState closestEnemy)) return;
+
+			float chargeDuration = Time.time - _chargeStartTime;
+			if (chargeDuration < HeroConfig.Instance.MinChargeDuration) return;
+
+			float chargeRatio = Mathf.Clamp01(Mathf.InverseLerp(
+				HeroConfig.Instance.MinChargeDuration,
+				HeroConfig.Instance.MaxChargeDuration,
+				chargeDuration
+			));
+			float scaledRange = _weaponsService.CurrentWeapon.Range *
+				Mathf.Lerp(1f, HeroConfig.Instance.MaxChargeRangeMultiplier, chargeRatio);
+
+			if (!TryFindClosestEnemy(out EnemyState closestEnemy, scaledRange)) return;
+
+			_pendingAttackDamage = Mathf.RoundToInt(
+				_weaponsService.CurrentWeapon.Damage *
+				Mathf.Lerp(1f, HeroConfig.Instance.MaxChargeDamageMultiplier, chargeRatio)
+			);
 
 			Vector3 facingDirection = (closestEnemy.Position - _currentState.Position).normalized;
 			_currentState = new HeroState(_currentState.Position, _currentState.Health, Time.time, facingDirection);
 			OnStateChanged?.Invoke(_currentState);
 
-			_pendingAttackTargets = GetEnemiesInArc(facingDirection);
+			_attackChargeRatio = chargeRatio;
+			_pendingAttackTargets = GetEnemiesInArc(facingDirection, scaledRange);
 			OnAttacked?.Invoke();
 		}
 
@@ -117,16 +169,15 @@ namespace Game.GamePlay.Heroes
 			if (_pendingAttackTargets == null) return;
 
 			foreach (EnemyState enemy in _pendingAttackTargets)
-				_enemiesController.AttackEnemy(enemy, _weaponsService.CurrentWeapon.Damage);
+				_enemiesController.AttackEnemy(enemy, _pendingAttackDamage);
 
 			_pendingAttackTargets = null;
 		}
 
-		private bool TryFindClosestEnemy(out EnemyState closestEnemy)
+		private bool TryFindClosestEnemy(out EnemyState closestEnemy, float range)
 		{
 			closestEnemy = default;
-			if (_weaponsService.CurrentWeapon == null) return false;
-			float closestDistance = _weaponsService.CurrentWeapon.Range;
+			float closestDistance = range;
 			bool found = false;
 
 			foreach (EnemyState enemy in _enemiesController.Enemies.Values)
@@ -143,7 +194,7 @@ namespace Game.GamePlay.Heroes
 			return found;
 		}
 
-		private List<EnemyState> GetEnemiesInArc(Vector3 facingDirection)
+		private List<EnemyState> GetEnemiesInArc(Vector3 facingDirection, float range)
 		{
 			List<EnemyState> result = new List<EnemyState>();
 			float halfArc = HeroConfig.Instance.AttackArcAngle / 2f;
@@ -151,7 +202,7 @@ namespace Game.GamePlay.Heroes
 			foreach (EnemyState enemy in _enemiesController.Enemies.Values)
 			{
 				float distance = Vector3.Distance(_currentState.Position, enemy.Position);
-				if (distance > _weaponsService.CurrentWeapon.Range) continue;
+				if (distance > range) continue;
 
 				Vector3 dirToEnemy = (enemy.Position - _currentState.Position).normalized;
 				if (Vector3.Angle(facingDirection, dirToEnemy) <= halfArc)

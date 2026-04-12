@@ -1,4 +1,5 @@
 using Game.GamePlay.Entities;
+using Game.GamePlay.Heroes;
 using Game.JoystickInput;
 using Game.Weapons;
 using Core.ServicesManager;
@@ -105,13 +106,23 @@ namespace Game.GamePlay.Heroes
 		private void Update()
 		{
 			if (_heroController == null || _heroController.CurrentState.IsDead) return;
-			// if (_currentMovementInput.sqrMagnitude <= 0.01f) return;
 
 			Vector3 facingDirection = _heroController.CurrentState.FacingDirection;
 			if (facingDirection.sqrMagnitude <= 0.01f) return;
 
 			Quaternion targetRotation = Quaternion.LookRotation(-facingDirection);
 			transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
+
+			UpdateWeaponScale();
+		}
+
+		private void UpdateWeaponScale()
+		{
+			if (_currentWeaponView == null) return;
+
+			float chargeRatio = _heroController.CurrentChargeRatio;
+			float scale = Mathf.Lerp(1f, HeroConfig.Instance.MaxChargeWeaponScale, chargeRatio);
+			_currentWeaponView.transform.localScale = Vector3.one * scale;
 		}
 
 		private void UpdateAnimator()
