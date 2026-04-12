@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Threading;
+using Core.ServicesManager;
 using Cysharp.Threading.Tasks;
 using Game.GamePlay.Heroes;
 using UnityEngine;
@@ -85,11 +86,14 @@ namespace Game.GamePlay.Enemies
 
 		private async UniTaskVoid SpawnLoop(CancellationToken cancellationToken)
 		{
+			await UniTask.Delay(TimeSpan.FromSeconds(3), cancellationToken: cancellationToken);
+			
 			while (!cancellationToken.IsCancellationRequested)
 			{
 				if (!_heroController.CurrentState.IsDead && _enemies.Count < EnemiesConfig.Instance.MaxEnemies)
 				{
 					SpawnEnemy();
+					Debug.LogError("Spawn Enemy");
 				}
 
 				await UniTask.Delay(TimeSpan.FromSeconds(EnemiesConfig.Instance.SpawnInterval), cancellationToken: cancellationToken);
