@@ -18,8 +18,13 @@ namespace Game.GamePlay.Heroes
 		[Tooltip("Initial health of the hero")]
 		private int initialHealth = 100;
 
+		[SerializeField]
+		[Tooltip("Attack arc angle in degrees (e.g. 120 = 60° on each side)")]
+		private float attackArcAngle = 120f;
+
 		public HeroView HeroPrefab => heroPrefab;
 		public float MoveSpeed => moveSpeed;
 		public int InitialHealth => initialHealth;
+		public float AttackArcAngle => attackArcAngle;
 	}
 }

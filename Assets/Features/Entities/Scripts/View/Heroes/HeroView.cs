@@ -9,6 +9,8 @@ namespace Game.GamePlay.Heroes
 	public class HeroView : MonoBehaviour
 	{
 		private static readonly int SpeedHash = Animator.StringToHash("Speed");
+		private static readonly int AttackHash = Animator.StringToHash("Attack");
+		private static readonly int DieHash = Animator.StringToHash("Die");
 
 		[SerializeField] private Animator animator;
 		[SerializeField] private float rotationSpeed = 10f;
@@ -19,10 +21,15 @@ namespace Game.GamePlay.Heroes
 		private WeaponsService _weaponsService;
 		private Vector2 _currentMovementInput;
 		private WeaponView _currentWeaponView;
+		private AnimationEventComponent _animationEventComponent;
 
 		private void Start()
 		{
 			ServicesLocator.Instance.OnAllServicesInitialized += OnServicesInitialized;
+
+			_animationEventComponent = GetComponentInChildren<AnimationEventComponent>();
+			if (_animationEventComponent != null)
+				_animationEventComponent.OnAnimationEvent += OnAttackImpact;
 		}
 
 		private void OnServicesInitialized()
@@ -33,6 +40,8 @@ namespace Game.GamePlay.Heroes
 
 			_joystickInputService.OnStateChanged += OnJoystickStateChanged;
 			_heroController.OnStateChanged += OnHeroStateChanged;
+			_heroController.OnAttacked += OnHeroAttacked;
+			_heroController.OnDied += OnHeroDied;
 			_weaponsService.OnWeaponChanged += OnWeaponChanged;
 
 			OnJoystickStateChanged(_joystickInputService.CurrentState);
@@ -50,11 +59,15 @@ namespace Game.GamePlay.Heroes
 			if (_heroController != null)
 			{
 				_heroController.OnStateChanged -= OnHeroStateChanged;
+				_heroController.OnAttacked -= OnHeroAttacked;
+				_heroController.OnDied -= OnHeroDied;
 			}
 			if (_weaponsService != null)
 			{
 				_weaponsService.OnWeaponChanged -= OnWeaponChanged;
 			}
+			if (_animationEventComponent != null)
+				_animationEventComponent.OnAnimationEvent -= OnAttackImpact;
 			if (_currentWeaponView != null)
 			{
 				Destroy(_currentWeaponView.gameObject);
@@ -72,13 +85,32 @@ namespace Game.GamePlay.Heroes
 			transform.position = heroState.Position;
 		}
 
+		private void OnHeroAttacked()
+		{
+			if (animator == null) return;
+			animator.SetTrigger(AttackHash);
+		}
+
+		private void OnHeroDied()
+		{
+			if (animator == null) return;
+			animator.SetTrigger(DieHash);
+		}
+		
+		public void OnAttackImpact()
+		{
+			_heroController?.ExecuteAttackDamage();
+		}
+
 		private void Update()
 		{
 			if (_heroController == null || _heroController.CurrentState.IsDead) return;
-			if (_currentMovementInput.sqrMagnitude <= 0.01f) return;
+			// if (_currentMovementInput.sqrMagnitude <= 0.01f) return;
 
-			Vector3 movement = new Vector3(-_currentMovementInput.x, 0f, -_currentMovementInput.y);
-			Quaternion targetRotation = Quaternion.LookRotation(-movement);
+			Vector3 facingDirection = _heroController.CurrentState.FacingDirection;
+			if (facingDirection.sqrMagnitude <= 0.01f) return;
+
+			Quaternion targetRotation = Quaternion.LookRotation(-facingDirection);
 			transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
 		}
 

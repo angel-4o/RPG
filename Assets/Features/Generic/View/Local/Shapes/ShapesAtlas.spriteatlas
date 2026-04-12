@@ -46,7 +46,7 @@ SpriteAtlas:
   - {fileID: 21300000, guid: 53af566c0a5b44bbe821a7d81a3d8ae1, type: 3}
   m_PackedSpriteNamesToIndex:
   - WhiteSquare
-  - Circle
+  - circle
   m_RenderDataMap: {}
   m_Tag: ShapesAtlas
   m_IsVariant: 0

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Threading;
 using Cysharp.Threading.Tasks;
 using Game.GamePlay.Enemies;
@@ -18,12 +19,15 @@ namespace Game.GamePlay.Heroes
 		// Internal State
 		private CancellationTokenSource _cancellationTokenSource;
 		private HeroState _currentState;
+		private List<EnemyState> _pendingAttackTargets;
 
 		// Public State
 		public HeroState CurrentState => _currentState;
 
 		// Events
 		public event Action<HeroState> OnStateChanged;
+		public event Action OnAttacked;
+		public event Action OnDied;
 
 		public UniTask<bool> Initialize(EnemiesController enemiesController, JoystickInputService joystickInputService, WeaponsService weaponsService)
 		{
@@ -31,7 +35,7 @@ namespace Game.GamePlay.Heroes
 			_joystickInputService = joystickInputService;
 			_weaponsService = weaponsService;
 
-			_currentState = new HeroState(Vector3.zero, HeroConfig.Instance.InitialHealth, 0f);
+			_currentState = new HeroState(Vector3.zero, HeroConfig.Instance.InitialHealth, 0f, Vector3.forward);
 			_cancellationTokenSource = new CancellationTokenSource();
 
 			UpdateLoop(_cancellationTokenSource.Token).Forget();
@@ -45,18 +49,19 @@ namespace Game.GamePlay.Heroes
 
 			int newHealth = Mathf.Max(0, _currentState.Health - damage);
 			Debug.Log($"Hero is taking a hit. Health : {_currentState.Health} -> {newHealth}");
-			_currentState = new HeroState(_currentState.Position, newHealth, _currentState.LastAttackTime);
+			_currentState = new HeroState(_currentState.Position, newHealth, _currentState.LastAttackTime, _currentState.FacingDirection);
 			OnStateChanged?.Invoke(_currentState);
 
 			if (_currentState.IsDead)
 			{
 				Debug.Log("Hero is dead!");
+				OnDied?.Invoke();
 			}
 		}
 
 		public void Restart()
 		{
-			_currentState = new HeroState(Vector3.zero, HeroConfig.Instance.InitialHealth, 0f);
+			_currentState = new HeroState(Vector3.zero, HeroConfig.Instance.InitialHealth, 0f, Vector3.forward);
 			OnStateChanged?.Invoke(_currentState);
 		}
 
@@ -89,7 +94,7 @@ namespace Game.GamePlay.Heroes
 			Vector3 movement = new Vector3(-currentMovementInput.x, 0f, -currentMovementInput.y);
 			Vector3 newPosition = _currentState.Position + movement * (HeroConfig.Instance.MoveSpeed * Time.deltaTime);
 
-			_currentState = new HeroState(newPosition, _currentState.Health, _currentState.LastAttackTime);
+			_currentState = new HeroState(newPosition, _currentState.Health, _currentState.LastAttackTime, movement.normalized);
 			OnStateChanged?.Invoke(_currentState);
 		}
 
@@ -97,12 +102,24 @@ namespace Game.GamePlay.Heroes
 		{
 			if (_weaponsService.CurrentWeapon == null) return;
 			if (Time.time - _currentState.LastAttackTime < _weaponsService.CurrentWeapon.Cooldown) return;
+			if (!TryFindClosestEnemy(out EnemyState closestEnemy)) return;
 
-			if (TryFindClosestEnemy(out EnemyState closestEnemy))
-			{
-				_enemiesController.AttackEnemy(closestEnemy, _weaponsService.CurrentWeapon.Damage);
-				_currentState = new HeroState(_currentState.Position, _currentState.Health, Time.time);
-			}
+			Vector3 facingDirection = (closestEnemy.Position - _currentState.Position).normalized;
+			_currentState = new HeroState(_currentState.Position, _currentState.Health, Time.time, facingDirection);
+			OnStateChanged?.Invoke(_currentState);
+
+			_pendingAttackTargets = GetEnemiesInArc(facingDirection);
+			OnAttacked?.Invoke();
+		}
+
+		public void ExecuteAttackDamage()
+		{
+			if (_pendingAttackTargets == null) return;
+
+			foreach (EnemyState enemy in _pendingAttackTargets)
+				_enemiesController.AttackEnemy(enemy, _weaponsService.CurrentWeapon.Damage);
+
+			_pendingAttackTargets = null;
 		}
 
 		private bool TryFindClosestEnemy(out EnemyState closestEnemy)
@@ -124,6 +141,24 @@ namespace Game.GamePlay.Heroes
 			}
 
 			return found;
+		}
+
+		private List<EnemyState> GetEnemiesInArc(Vector3 facingDirection)
+		{
+			List<EnemyState> result = new List<EnemyState>();
+			float halfArc = HeroConfig.Instance.AttackArcAngle / 2f;
+
+			foreach (EnemyState enemy in _enemiesController.Enemies.Values)
+			{
+				float distance = Vector3.Distance(_currentState.Position, enemy.Position);
+				if (distance > _weaponsService.CurrentWeapon.Range) continue;
+
+				Vector3 dirToEnemy = (enemy.Position - _currentState.Position).normalized;
+				if (Vector3.Angle(facingDirection, dirToEnemy) <= halfArc)
+					result.Add(enemy);
+			}
+
+			return result;
 		}
 	}
 }
