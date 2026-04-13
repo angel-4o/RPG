@@ -16,6 +16,8 @@ namespace Game.GamePlay.Heroes
 		[SerializeField] private Animator animator;
 		[SerializeField] private float rotationSpeed = 10f;
 		[SerializeField] private Transform weaponSlot;
+		[SerializeField] private ParticleSystem chargeParticle;
+		[SerializeField] private float maxChargeParticleScale = 2f;
 
 		private JoystickInputService _joystickInputService;
 		private HeroController _heroController;
@@ -79,6 +81,7 @@ namespace Game.GamePlay.Heroes
 		{
 			_currentMovementInput = state.IsActive ? state.MovementVector : Vector2.zero;
 			UpdateAnimator();
+			UpdateChargeParticle(state.IsActive);
 		}
 
 		private void OnHeroStateChanged(HeroState heroState)
@@ -96,6 +99,41 @@ namespace Game.GamePlay.Heroes
 		{
 			if (animator == null) return;
 			animator.SetTrigger(DieHash);
+			DetachWeapon();
+			UpdateChargeParticle(false);
+		}
+
+		private void UpdateChargeParticle(bool isCharging)
+		{
+			if (chargeParticle == null) return;
+
+			if (isCharging)
+			{
+				// chargeParticle.Play();
+			}
+			else
+			{
+				// chargeParticle.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+				chargeParticle.transform.localScale = Vector3.zero;
+			}
+		}
+
+		private void UpdateChargeParticleScale()
+		{
+			if (chargeParticle == null) return;
+
+			float scale = Mathf.Lerp(0f, maxChargeParticleScale, _heroController.CurrentChargeRatio);
+			chargeParticle.transform.localScale = Vector3.one * scale;
+		}
+
+		private void DetachWeapon()
+		{
+			if (_currentWeaponView == null) return;
+
+			_currentWeaponView.transform.SetParent(null);
+			Rigidbody rb = _currentWeaponView.GetComponent<Rigidbody>();
+			if (rb != null)
+				rb.isKinematic = false;
 		}
 		
 		public void OnAttackImpact()
@@ -114,6 +152,7 @@ namespace Game.GamePlay.Heroes
 			transform.rotation = Quaternion.Slerp(transform.rotation, targetRotation, rotationSpeed * Time.deltaTime);
 
 			UpdateWeaponScale();
+			UpdateChargeParticleScale();
 		}
 
 		private void UpdateWeaponScale()

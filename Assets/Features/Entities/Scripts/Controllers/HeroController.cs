@@ -45,6 +45,7 @@ namespace Game.GamePlay.Heroes
 		// Events
 		public event Action<HeroState> OnStateChanged;
 		public event Action OnAttacked;
+		public event Action OnHit;
 		public event Action OnDied;
 
 		public UniTask<bool> Initialize(EnemiesController enemiesController, JoystickInputService joystickInputService, WeaponsService weaponsService)
@@ -69,6 +70,7 @@ namespace Game.GamePlay.Heroes
 			Debug.Log($"Hero is taking a hit. Health : {_currentState.Health} -> {newHealth}");
 			_currentState = new HeroState(_currentState.Position, newHealth, _currentState.LastAttackTime, _currentState.FacingDirection);
 			OnStateChanged?.Invoke(_currentState);
+			OnHit?.Invoke();
 
 			if (_currentState.IsDead)
 			{
