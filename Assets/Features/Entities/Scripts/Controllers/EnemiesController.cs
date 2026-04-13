@@ -16,7 +16,9 @@ namespace Game.GamePlay.Enemies
 		public event Action<EnemyState> OnEnemySpawned;
 		public event Action<int> OnEnemyRemoved;
 		public event Action<EnemyState> OnEnemyPositionChanged;
-		public event Action<Vector3> OnEnemyHit;
+		public event Action<int, Vector3> OnEnemyHit;
+		public event Action<int> OnEnemyAttacked;
+		public event Action<EnemyState> OnEnemyHealthChanged;
 		public event Action OnEnemyDied;
 
 		// State
@@ -70,7 +72,7 @@ namespace Game.GamePlay.Enemies
 		{
 			if (!_enemies.ContainsKey(enemyState.Id)) return;
 
-			OnEnemyHit?.Invoke(enemyState.Position);
+			OnEnemyHit?.Invoke(enemyState.Id, enemyState.Position);
 			int newHealth = enemyState.Health - damage;
 
 			Debug.Log($"Attacked enemy id°{enemyState.Id}. Health : {enemyState.Health} -> {newHealth}");
@@ -85,13 +87,14 @@ namespace Game.GamePlay.Enemies
 			{
 				EnemyState updatedEnemy = new EnemyState(enemyState.Id, enemyState.Position, newHealth, enemyState.Config);
 				_enemies[enemyState.Id] = updatedEnemy;
+				OnEnemyHealthChanged?.Invoke(updatedEnemy);
 			}
 		}
 
 		private async UniTaskVoid SpawnLoop(CancellationToken cancellationToken)
 		{
 			await UniTask.Delay(TimeSpan.FromSeconds(3), cancellationToken: cancellationToken);
-			// return;
+			
 			while (!cancellationToken.IsCancellationRequested)
 			{
 				if (!_heroController.CurrentState.IsDead && _enemies.Count < EnemiesConfig.Instance.MaxEnemies)
@@ -100,6 +103,7 @@ namespace Game.GamePlay.Enemies
 					Debug.LogError("Spawn Enemy");
 				}
 
+				// return;
 				await UniTask.Delay(TimeSpan.FromSeconds(EnemiesConfig.Instance.SpawnInterval), cancellationToken: cancellationToken);
 			}
 		}
@@ -158,20 +162,31 @@ namespace Game.GamePlay.Enemies
 
 			if (distanceToHero > enemy.Config.AttackRange)
 			{
-				Vector3 direction = (heroPosition - enemy.Position).normalized;
-				Vector3 newPosition = enemy.Position + direction * (enemy.Config.Speed * Time.deltaTime);
+				Vector3 desiredDirection = (heroPosition - enemy.Position).normalized;
+				Vector3 smoothedDirection = Vector3.Slerp(enemy.MoveDirection, desiredDirection, enemy.Config.DirectionSmoothFactor * Time.deltaTime).normalized;
+				Vector3 newPosition = enemy.Position + smoothedDirection * (enemy.Config.Speed * Time.deltaTime);
 
-				EnemyState updatedEnemy = new EnemyState(enemy.Id, newPosition, enemy.Health, enemy.Config, enemy.LastAttackTime);
+				EnemyState updatedEnemy = new EnemyState(enemy.Id, newPosition, enemy.Health, enemy.Config, enemy.LastAttackTime, -1f, smoothedDirection);
 				_enemies[enemy.Id] = updatedEnemy;
 				OnEnemyPositionChanged?.Invoke(updatedEnemy);
 			}
 			else
 			{
-				if (Time.time - enemy.LastAttackTime >= enemy.Config.AttackCooldown)
+				if (enemy.AttackWindupStartTime < 0f)
 				{
+					// Just entered attack range — begin windup
+					EnemyState updatedEnemy = new EnemyState(enemy.Id, enemy.Position, enemy.Health, enemy.Config, enemy.LastAttackTime, Time.time);
+					_enemies[enemy.Id] = updatedEnemy;
+				}
+				else if (Time.time - enemy.AttackWindupStartTime >= enemy.Config.AttackWindupDuration
+					&& Time.time - enemy.LastAttackTime >= enemy.Config.AttackCooldown)
+				{
+					// Windup complete and cooldown elapsed — attack and reset windup
+					// if (distanceToHero <= enemy.Config.AttackRange)
 					_heroController.TakeHit(enemy.Config.AttackDamage);
+					OnEnemyAttacked?.Invoke(enemy.Id);
 
-					EnemyState updatedEnemy = new EnemyState(enemy.Id, enemy.Position, enemy.Health, enemy.Config, Time.time);
+					EnemyState updatedEnemy = new EnemyState(enemy.Id, enemy.Position, enemy.Health, enemy.Config, Time.time, -1f);
 					_enemies[enemy.Id] = updatedEnemy;
 				}
 			}

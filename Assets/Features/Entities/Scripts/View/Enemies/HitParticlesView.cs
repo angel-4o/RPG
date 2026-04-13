@@ -28,7 +28,7 @@ namespace Game.GamePlay.Enemies
 				_enemiesController.OnEnemyHit -= OnEnemyHit;
 		}
 
-		private void OnEnemyHit(Vector3 position)
+		private void OnEnemyHit(int enemyId, Vector3 position)
 		{
 			if (hitParticlePrefab == null) return;
 

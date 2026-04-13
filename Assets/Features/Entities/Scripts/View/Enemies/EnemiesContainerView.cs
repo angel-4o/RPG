@@ -29,6 +29,7 @@ namespace Game.GamePlay.Enemies
 		{
 			EnemyView enemyView = Instantiate(enemyState.Config.Prefab, transform);
 			enemyView.transform.position = enemyState.Position;
+			enemyView.Initialize(enemyState.Id, _enemiesController, enemyState);
 			_enemyViews[enemyState.Id] = enemyView;
 		}
 
@@ -36,7 +37,7 @@ namespace Game.GamePlay.Enemies
 		{
 			if (_enemyViews.Remove(enemyId, out EnemyView enemyView))
 			{
-				Destroy(enemyView.gameObject);
+				enemyView.PlayDeath();
 			}
 		}
 

@@ -8,6 +8,8 @@ namespace Game.GamePlay.Enemies
 		[SerializeField] private string id;
 		[SerializeField] private int initialHealth;
 		[SerializeField] private float speed;
+		[SerializeField] private float directionSmoothFactor = 15f;
+		[SerializeField] private float attackWindupDuration = 1f;
 		[SerializeField] private float attackCooldown;
 		[SerializeField] private int attackDamage;
 		[SerializeField] private float attackRange;
@@ -16,6 +18,8 @@ namespace Game.GamePlay.Enemies
 		public string Id => id;
 		public int InitialHealth => initialHealth;
 		public float Speed => speed;
+		public float DirectionSmoothFactor => directionSmoothFactor;
+		public float AttackWindupDuration => attackWindupDuration;
 		public float AttackCooldown => attackCooldown;
 		public int AttackDamage => attackDamage;
 		public float AttackRange => attackRange;

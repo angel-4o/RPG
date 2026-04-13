@@ -1,15 +1,28 @@
+using System;
+using Core.ServicesManager;
+using Cysharp.Threading.Tasks;
 using Game.GamePlay.Entities;
 using Game.GamePlay.Heroes;
-using Core.ServicesManager;
 using UnityEngine;
 
 namespace Game.GamePlay.Enemies
 {
 	public class EnemyView : MonoBehaviour
 	{
+		private static readonly int MoveHash = Animator.StringToHash("Move");
+		private static readonly int TakeDamageHash = Animator.StringToHash("TakeDamage");
+		private static readonly int AttackHash = Animator.StringToHash("Attack");
+		private static readonly int DieHash = Animator.StringToHash("Die");
+
+		[SerializeField] private Animator animator;
 		[SerializeField] private float rotationSpeed = 10f;
+		[SerializeField] private float deathAnimationDuration = 1f;
 
 		private HeroController _heroController;
+		private EnemiesController _enemiesController;
+		private EnemyHealthBarView _healthBarView;
+		private int _id;
+		private bool _isMoving;
 
 		private void Start()
 		{
@@ -19,6 +32,29 @@ namespace Game.GamePlay.Enemies
 		private void OnServicesInitialized()
 		{
 			_heroController = ServicesLocator.Instance.GetService<EntitiesService>().HeroController;
+		}
+
+		public void Initialize(int id, EnemiesController enemiesController, EnemyState initialState)
+		{
+			_id = id;
+			_enemiesController = enemiesController;
+
+			_enemiesController.OnEnemyPositionChanged += OnEnemyPositionChanged;
+			_enemiesController.OnEnemyAttacked += OnEnemyAttacked;
+
+			_healthBarView = GetComponentInChildren<EnemyHealthBarView>();
+			_healthBarView?.Initialize(initialState, enemiesController);
+		}
+
+		private void OnDestroy()
+		{
+			ServicesLocator.Instance.OnAllServicesInitialized -= OnServicesInitialized;
+			if (_enemiesController != null)
+			{
+				_enemiesController.OnEnemyPositionChanged -= OnEnemyPositionChanged;
+				_enemiesController.OnEnemyHit -= OnEnemyHit;
+				_enemiesController.OnEnemyAttacked -= OnEnemyAttacked;
+			}
 		}
 
 		private void Update()
@@ -35,9 +71,40 @@ namespace Game.GamePlay.Enemies
 			}
 		}
 
-		private void OnDestroy()
+		private void OnEnemyPositionChanged(EnemyState state)
 		{
-			ServicesLocator.Instance.OnAllServicesInitialized -= OnServicesInitialized;
+			if (state.Id != _id || _isMoving) return;
+
+			_isMoving = true;
+			if (animator != null) animator.SetTrigger(MoveHash);
+		}
+
+		private void OnEnemyHit(int enemyId, Vector3 position)
+		{
+			if (enemyId != _id) return;
+
+			_isMoving = false;
+			if (animator != null) animator.SetTrigger(TakeDamageHash);
+		}
+
+		private void OnEnemyAttacked(int enemyId)
+		{
+			if (enemyId != _id) return;
+
+			_isMoving = false;
+			if (animator != null) animator.SetTrigger(AttackHash);
+		}
+
+		public void PlayDeath()
+		{
+			if (animator != null) animator.SetTrigger(DieHash);
+			PlayDeathAsync().Forget();
+		}
+
+		private async UniTaskVoid PlayDeathAsync()
+		{
+			await UniTask.Delay(TimeSpan.FromSeconds(deathAnimationDuration));
+			if (this != null) Destroy(gameObject);
 		}
 	}
 }
