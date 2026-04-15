@@ -49,6 +49,7 @@ MonoBehaviour:
   animator: {fileID: 6926839794853975167}
   rotationSpeed: 10
   deathAnimationDuration: 1
+  deathParticlesPrefab: {fileID: 19819134, guid: e73000b12fb76244cbffd6abbf8bb6e4, type: 3}
 --- !u!1 &6926839794863368101
 GameObject:
   m_ObjectHideFlags: 0

@@ -20,11 +20,13 @@ namespace Game.GamePlay.Enemies
 		public event Action<int> OnEnemyAttacked;
 		public event Action<EnemyState> OnEnemyHealthChanged;
 		public event Action OnEnemyDied;
+		public event Action<EnemyState> OnEnemyPhaseChanged;
 
 		// State
 		private Dictionary<int, EnemyState> _enemies;
 		private CancellationTokenSource _cancellationTokenSource;
 		private int _nextEnemyId;
+		private readonly List<int> _enemyUpdateBuffer = new List<int>();
 
 		public IReadOnlyDictionary<int, EnemyState> Enemies => _enemies;
 
@@ -55,17 +57,13 @@ namespace Game.GamePlay.Enemies
 		{
 			List<int> enemyIds = new List<int>(_enemies.Keys);
 			foreach (int enemyId in enemyIds)
-			{
 				RemoveEnemy(enemyId);
-			}
 		}
 
 		public void RemoveEnemy(int enemyId)
 		{
 			if (_enemies.Remove(enemyId))
-			{
 				OnEnemyRemoved?.Invoke(enemyId);
-			}
 		}
 
 		public void AttackEnemy(EnemyState enemyState, int damage)
@@ -85,25 +83,21 @@ namespace Game.GamePlay.Enemies
 			}
 			else
 			{
-				EnemyState updatedEnemy = new EnemyState(enemyState.Id, enemyState.Position, newHealth, enemyState.Config);
-				_enemies[enemyState.Id] = updatedEnemy;
-				OnEnemyHealthChanged?.Invoke(updatedEnemy);
+				EnemyState updated = enemyState.With(health: newHealth);
+				_enemies[enemyState.Id] = updated;
+				OnEnemyHealthChanged?.Invoke(updated);
 			}
 		}
 
 		private async UniTaskVoid SpawnLoop(CancellationToken cancellationToken)
 		{
 			await UniTask.Delay(TimeSpan.FromSeconds(3), cancellationToken: cancellationToken);
-			
+
 			while (!cancellationToken.IsCancellationRequested)
 			{
 				if (!_heroController.CurrentState.IsDead && _enemies.Count < EnemiesConfig.Instance.MaxEnemies)
-				{
 					SpawnEnemy();
-					Debug.LogError("Spawn Enemy");
-				}
 
-				// return;
 				await UniTask.Delay(TimeSpan.FromSeconds(EnemiesConfig.Instance.SpawnInterval), cancellationToken: cancellationToken);
 			}
 		}
@@ -117,7 +111,7 @@ namespace Game.GamePlay.Enemies
 
 			int enemyId = _nextEnemyId++;
 			EnemyConfig enemyConfig = EnemiesConfig.Instance.Enemies[0];
-			EnemyState newEnemy = new EnemyState(enemyId, spawnPosition, enemyConfig.InitialHealth, enemyConfig);
+			EnemyState newEnemy = new EnemyState(enemyId, spawnPosition, enemyConfig.InitialHealth, enemyConfig, lastAttackTime: Time.time);
 
 			_enemies[enemyId] = newEnemy;
 			OnEnemySpawned?.Invoke(newEnemy);
@@ -142,12 +136,12 @@ namespace Game.GamePlay.Enemies
 					continue;
 				}
 
-				List<int> enemiesToUpdate = new List<int>(_enemies.Keys);
-				for (int i = 0; i < enemiesToUpdate.Count; i++)
-				{
-					int enemyId = enemiesToUpdate[i];
-					if (!_enemies.TryGetValue(enemyId, out EnemyState enemy)) continue;
+				_enemyUpdateBuffer.Clear();
+				_enemyUpdateBuffer.AddRange(_enemies.Keys);
 
+				for (int i = 0; i < _enemyUpdateBuffer.Count; i++)
+				{
+					if (!_enemies.TryGetValue(_enemyUpdateBuffer[i], out EnemyState enemy)) continue;
 					UpdateEnemy(enemy);
 				}
 
@@ -158,37 +152,94 @@ namespace Game.GamePlay.Enemies
 		private void UpdateEnemy(EnemyState enemy)
 		{
 			Vector3 heroPosition = _heroController.CurrentState.Position;
+
+			switch (enemy.Phase)
+			{
+				case LungePhase.Chasing:
+					UpdateChasing(enemy, heroPosition);
+					break;
+				case LungePhase.Lunging:
+					UpdateLunging(enemy, heroPosition);
+					break;
+				case LungePhase.Recovering:
+					UpdateRecovering(enemy);
+					break;
+			}
+		}
+
+		private void UpdateChasing(EnemyState enemy, Vector3 heroPosition)
+		{
 			float distanceToHero = Vector3.Distance(enemy.Position, heroPosition);
 
-			if (distanceToHero > enemy.Config.AttackRange)
+			bool lungeCooldownElapsed = Time.time - enemy.LastAttackTime >= enemy.Config.LungeCooldown;
+			if (distanceToHero <= enemy.Config.LungeRange && lungeCooldownElapsed)
 			{
-				Vector3 desiredDirection = (heroPosition - enemy.Position).normalized;
-				Vector3 smoothedDirection = Vector3.Slerp(enemy.MoveDirection, desiredDirection, enemy.Config.DirectionSmoothFactor * Time.deltaTime).normalized;
-				Vector3 newPosition = enemy.Position + smoothedDirection * (enemy.Config.Speed * Time.deltaTime);
-
-				EnemyState updatedEnemy = new EnemyState(enemy.Id, newPosition, enemy.Health, enemy.Config, enemy.LastAttackTime, -1f, smoothedDirection);
-				_enemies[enemy.Id] = updatedEnemy;
-				OnEnemyPositionChanged?.Invoke(updatedEnemy);
+				EnemyState updated = enemy.With(phase: LungePhase.Lunging, lungeActionStartTime: Time.time, lungeTarget: heroPosition);
+				_enemies[enemy.Id] = updated;
+				OnEnemyPhaseChanged?.Invoke(updated);
+				return;
 			}
-			else
+
+			if (distanceToHero <= enemy.Config.AttackRange)
 			{
-				if (enemy.AttackWindupStartTime < 0f)
+				if (Time.time - enemy.LastAttackTime >= enemy.Config.AttackCooldown)
 				{
-					// Just entered attack range — begin windup
-					EnemyState updatedEnemy = new EnemyState(enemy.Id, enemy.Position, enemy.Health, enemy.Config, enemy.LastAttackTime, Time.time);
-					_enemies[enemy.Id] = updatedEnemy;
-				}
-				else if (Time.time - enemy.AttackWindupStartTime >= enemy.Config.AttackWindupDuration
-					&& Time.time - enemy.LastAttackTime >= enemy.Config.AttackCooldown)
-				{
-					// Windup complete and cooldown elapsed — attack and reset windup
-					// if (distanceToHero <= enemy.Config.AttackRange)
 					_heroController.TakeHit(enemy.Config.AttackDamage);
 					OnEnemyAttacked?.Invoke(enemy.Id);
-
-					EnemyState updatedEnemy = new EnemyState(enemy.Id, enemy.Position, enemy.Health, enemy.Config, Time.time, -1f);
-					_enemies[enemy.Id] = updatedEnemy;
+					_enemies[enemy.Id] = enemy.With(lastAttackTime: Time.time);
 				}
+				return;
+			}
+
+			Vector3 desiredDirection = (heroPosition - enemy.Position).normalized;
+			Vector3 smoothedDirection = Vector3.Slerp(enemy.MoveDirection, desiredDirection, enemy.Config.DirectionSmoothFactor * Time.deltaTime).normalized;
+			Vector3 newPosition = enemy.Position + smoothedDirection * (enemy.Config.Speed * Time.deltaTime);
+
+			EnemyState moved = enemy.With(position: newPosition, moveDirection: smoothedDirection);
+			_enemies[enemy.Id] = moved;
+			OnEnemyPositionChanged?.Invoke(moved);
+		}
+
+		private void UpdateLunging(EnemyState enemy, Vector3 heroPosition)
+		{
+			if (Vector3.Distance(enemy.Position, heroPosition) <= enemy.Config.AttackRange)
+			{
+				_heroController.TakeHit(enemy.Config.AttackDamage);
+				OnEnemyAttacked?.Invoke(enemy.Id);
+
+				EnemyState recovered = enemy.With(lastAttackTime: Time.time, phase: LungePhase.Recovering, lungeActionStartTime: Time.time);
+				_enemies[enemy.Id] = recovered;
+				OnEnemyPositionChanged?.Invoke(recovered);
+				OnEnemyPhaseChanged?.Invoke(recovered);
+				return;
+			}
+
+			Vector3 toTarget = enemy.LungeTarget - enemy.Position;
+			float distToTarget = toTarget.magnitude;
+			float step = enemy.Config.LungeSpeed * Time.deltaTime;
+
+			if (distToTarget <= step)
+			{
+				EnemyState recovered = enemy.With(position: enemy.LungeTarget, lastAttackTime: Time.time, phase: LungePhase.Recovering, lungeActionStartTime: Time.time);
+				_enemies[enemy.Id] = recovered;
+				OnEnemyPositionChanged?.Invoke(recovered);
+				OnEnemyPhaseChanged?.Invoke(recovered);
+				return;
+			}
+
+			Vector3 direction = toTarget / distToTarget;
+			EnemyState moved = enemy.With(position: enemy.Position + direction * step, moveDirection: direction);
+			_enemies[enemy.Id] = moved;
+			OnEnemyPositionChanged?.Invoke(moved);
+		}
+
+		private void UpdateRecovering(EnemyState enemy)
+		{
+			if (Time.time - enemy.LungeActionStartTime >= enemy.Config.RecoveryDuration)
+			{
+				EnemyState updated = enemy.With(phase: LungePhase.Chasing, lungeActionStartTime: 0f, lungeTarget: default);
+				_enemies[enemy.Id] = updated;
+				OnEnemyPhaseChanged?.Invoke(updated);
 			}
 		}
 	}

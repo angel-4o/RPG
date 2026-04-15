@@ -1,6 +1,7 @@
 using System;
 using Core.ServicesManager;
 using Cysharp.Threading.Tasks;
+using DG.Tweening;
 using Game.GamePlay.Entities;
 using Game.GamePlay.Heroes;
 using UnityEngine;
@@ -13,16 +14,22 @@ namespace Game.GamePlay.Enemies
 		private static readonly int TakeDamageHash = Animator.StringToHash("TakeDamage");
 		private static readonly int AttackHash = Animator.StringToHash("Attack");
 		private static readonly int DieHash = Animator.StringToHash("Die");
+		private static readonly int BaseColorId = Shader.PropertyToID("_BaseColor");
 
 		[SerializeField] private Animator animator;
 		[SerializeField] private float rotationSpeed = 10f;
 		[SerializeField] private float deathAnimationDuration = 1f;
+		[SerializeField] private ParticleSystem deathParticlesPrefab;
 
 		private HeroController _heroController;
 		private EnemiesController _enemiesController;
 		private EnemyHealthBarView _healthBarView;
 		private int _id;
 		private bool _isMoving;
+		private Vector3 _targetPosition;
+		private float _moveSpeed;
+		private Renderer _renderer;
+		private Color _originalColor;
 
 		private void Start()
 		{
@@ -38,9 +45,15 @@ namespace Game.GamePlay.Enemies
 		{
 			_id = id;
 			_enemiesController = enemiesController;
+			_targetPosition = transform.position;
+
+			_renderer = GetComponentInChildren<Renderer>();
+			if (_renderer != null)
+				_originalColor = _renderer.material.GetColor(BaseColorId);
 
 			_enemiesController.OnEnemyPositionChanged += OnEnemyPositionChanged;
 			_enemiesController.OnEnemyAttacked += OnEnemyAttacked;
+			_enemiesController.OnEnemyPhaseChanged += OnEnemyPhaseChanged;
 
 			_healthBarView = GetComponentInChildren<EnemyHealthBarView>();
 			_healthBarView?.Initialize(initialState, enemiesController);
@@ -54,12 +67,21 @@ namespace Game.GamePlay.Enemies
 				_enemiesController.OnEnemyPositionChanged -= OnEnemyPositionChanged;
 				_enemiesController.OnEnemyHit -= OnEnemyHit;
 				_enemiesController.OnEnemyAttacked -= OnEnemyAttacked;
+				_enemiesController.OnEnemyPhaseChanged -= OnEnemyPhaseChanged;
 			}
 		}
 
-		private void Update()
+		public void SetTargetPosition(Vector3 position, float speed)
+		{
+			_targetPosition = position;
+			_moveSpeed = speed;
+		}
+
+		private void LateUpdate()
 		{
 			if (_heroController == null || _heroController.CurrentState.IsDead) return;
+
+			transform.position = Vector3.MoveTowards(transform.position, _targetPosition, _moveSpeed * Time.deltaTime);
 
 			Vector3 heroPosition = _heroController.CurrentState.Position;
 			Vector3 direction = (heroPosition - transform.position).normalized;
@@ -95,6 +117,14 @@ namespace Game.GamePlay.Enemies
 			if (animator != null) animator.SetTrigger(AttackHash);
 		}
 
+		private void OnEnemyPhaseChanged(EnemyState state)
+		{
+			if (state.Id != _id || _renderer == null) return;
+
+			Color color = state.Phase == LungePhase.Lunging ? Color.red : _originalColor;
+			_renderer.material.SetColor(BaseColorId, color);
+		}
+
 		public void PlayDeath()
 		{
 			if (animator != null) animator.SetTrigger(DieHash);
@@ -103,8 +133,12 @@ namespace Game.GamePlay.Enemies
 
 		private async UniTaskVoid PlayDeathAsync()
 		{
-			await UniTask.Delay(TimeSpan.FromSeconds(deathAnimationDuration));
-			if (this != null) Destroy(gameObject);
+			await UniTask.Delay(System.TimeSpan.FromSeconds(deathAnimationDuration));
+			if (this == null) return;
+
+			if (deathParticlesPrefab != null)
+				Instantiate(deathParticlesPrefab, transform.position, Quaternion.identity);
+			Destroy(gameObject);
 		}
 	}
 }

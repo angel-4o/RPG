@@ -150,14 +150,15 @@ namespace Game.GamePlay.Heroes
 			float scaledRange = _weaponsService.CurrentWeapon.Range *
 				Mathf.Lerp(1f, HeroConfig.Instance.MaxChargeRangeMultiplier, chargeRatio);
 
-			if (!TryFindClosestEnemy(out EnemyState closestEnemy, scaledRange)) return;
+			Vector3 facingDirection = _currentState.FacingDirection;
+			if (TryFindClosestEnemy(out EnemyState closestEnemy, scaledRange))
+				facingDirection = (closestEnemy.Position - _currentState.Position).normalized;
 
 			_pendingAttackDamage = Mathf.RoundToInt(
 				_weaponsService.CurrentWeapon.Damage *
 				Mathf.Lerp(1f, HeroConfig.Instance.MaxChargeDamageMultiplier, chargeRatio)
 			);
-
-			Vector3 facingDirection = (closestEnemy.Position - _currentState.Position).normalized;
+			
 			_currentState = new HeroState(_currentState.Position, _currentState.Health, Time.time, facingDirection);
 			OnStateChanged?.Invoke(_currentState);
 

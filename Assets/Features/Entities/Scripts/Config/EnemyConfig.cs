@@ -15,6 +15,13 @@ namespace Game.GamePlay.Enemies
 		[SerializeField] private float attackRange;
 		[SerializeField] private EnemyView prefab;
 
+		[Header("Lunge")]
+		[SerializeField] private float lungeRange = 5f;
+		[SerializeField] private float lungeWindupDuration = 0.5f;
+		[SerializeField] private float lungeSpeed = 8f;
+		[SerializeField] private float recoveryDuration = 2f;
+		[SerializeField] private float lungeCooldown = 5f;
+
 		public string Id => id;
 		public int InitialHealth => initialHealth;
 		public float Speed => speed;
@@ -24,5 +31,10 @@ namespace Game.GamePlay.Enemies
 		public int AttackDamage => attackDamage;
 		public float AttackRange => attackRange;
 		public EnemyView Prefab => prefab;
+		public float LungeRange => lungeRange;
+		public float LungeWindupDuration => lungeWindupDuration;
+		public float LungeSpeed => lungeSpeed;
+		public float RecoveryDuration => recoveryDuration;
+		public float LungeCooldown => lungeCooldown;
 	}
 }

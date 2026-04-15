@@ -45,7 +45,10 @@ namespace Game.GamePlay.Enemies
 		{
 			if (_enemyViews.TryGetValue(enemyState.Id, out EnemyView enemyView))
 			{
-				enemyView.transform.position = enemyState.Position;
+				float speed = enemyState.Phase == LungePhase.Lunging
+					? enemyState.Config.LungeSpeed
+					: enemyState.Config.Speed;
+				enemyView.SetTargetPosition(enemyState.Position, speed);
 			}
 		}
 
